@@ -1,0 +1,59 @@
+Changelog
+
+All notable changes to ScreenSafe will be documented in this section.
+
+Added
+
+* Planned support for scheduled break reminders.
+* Planned expansion of usage history beyond the current summary view.
+* Planned enhancement of charting and data visualization for daily and weekly reports.
+
+Changed
+
+* Future updates are expected to refine the user interface and improve navigation flow as development continues.
+
+[1.0.0] - Current Version
+
+Added
+
+* Finalized the six main screens shown in the wireframe:
+
+  * Welcome Screen
+  * Dashboard or Home Screen
+  * Set Limit Screen
+  * Warning or Alert Screen
+  * Daily or Weekly Summary Screen
+  * Settings Screen
+* Added a clearer user flow from the Welcome Screen to the Dashboard and then to Summary, Settings, Warning, and Set Limit.
+* Added local settings storage for user preferences.
+* Added reminder frequency selection.
+* Added weekly summary tracking.
+* Added theme selection in Settings.
+* Added warning-flow logic for daily screen time limits.
+* Added basic Android screen-time tracking through UsageStatsManager.
+
+Changed
+
+* Expanded the original project concept into a more complete wireframe-based design.
+* Refined the dashboard to include progress display and quick actions such as Set Limit, View Report, and Take a Break.
+* Refined the settings design to include notification controls, reminder settings, daily summary settings, theme selection, reset options, and save options.
+
+Fixed
+
+* Improved the connection between the project outline, wireframe, and code plan so that all parts now align more clearly.
+
+[0.1.0] - Previous Version
+
+Added
+
+* Initial app concept for ScreenSafe as an Android app focused on monitoring screen time.
+* Initial outline describing the business problem of excessive screen time.
+* Initial plan for core features such as usage limits, warnings, summaries, and settings.
+
+Changed
+
+* Established the first version of the project structure and general screen ideas before the wireframe and code stages.
+
+Fixed
+
+* Clarified the project goal so the app remained focused on digital wellness and healthier device habits.
