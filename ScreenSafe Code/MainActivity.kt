@@ -1,13 +1,14 @@
-package com.example.safescreen
+package com.example.screensafe
 
+import android.Manifest
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.background
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,17 +18,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.Divider
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
@@ -46,35 +40,84 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.safescreen.data.SettingsRepository
-import com.example.safescreen.data.UsageRepository
-import com.example.safescreen.model.AppSettings
-import com.example.safescreen.model.ReminderFrequency
-import com.example.safescreen.model.SummaryData
-import com.example.safescreen.ui.SafeScreenTheme
+import androidx.lifecycle.lifecycleScope
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import com.example.screensafe.data.AppDatabase
+import com.example.screensafe.data.SettingsRepository
+import com.example.screensafe.data.UsageRepository
+import com.example.screensafe.model.AppSettings
+import com.example.screensafe.model.ReminderFrequency
+import com.example.screensafe.model.SummaryData
+import com.example.screensafe.notifications.BreakReminderWorker
+import com.example.screensafe.notifications.DailySummaryWorker
+import com.example.screensafe.notifications.NotificationHelper
+import com.example.screensafe.ui.ScreenSafeTheme
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
+
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        val db = AppDatabase.getInstance(this)
         val settingsRepository = SettingsRepository(this)
-        val usageRepository = UsageRepository(this)
+        val usageRepository = UsageRepository(this, db)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
 
         setContent {
-            SafeScreenRoot(
+            ScreenSafeRoot(
                 settingsRepository = settingsRepository,
                 usageRepository = usageRepository,
                 onOpenUsageAccess = {
                     startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-                }
+                },
+                onScheduleWorkers = { settings -> scheduleWorkers(settings) }
             )
+        }
+    }
+
+    private fun scheduleWorkers(settings: AppSettings) {
+        val workManager = WorkManager.getInstance(this)
+
+        if (settings.breakRemindersEnabled) {
+            val hours = when (settings.reminderFrequency) {
+                ReminderFrequency.EVERY_HOUR -> 1L
+                ReminderFrequency.EVERY_2_HOURS -> 2L
+                ReminderFrequency.CUSTOM -> 3L
+            }
+            val breakReminder = PeriodicWorkRequestBuilder<BreakReminderWorker>(hours, TimeUnit.HOURS).build()
+            workManager.enqueueUniquePeriodicWork(
+                "break_reminder",
+                ExistingPeriodicWorkPolicy.UPDATE,
+                breakReminder
+            )
+        } else {
+            workManager.cancelUniqueWork("break_reminder")
+        }
+
+        if (settings.dailySummaryEnabled) {
+            val dailySummary = PeriodicWorkRequestBuilder<DailySummaryWorker>(24, TimeUnit.HOURS).build()
+            workManager.enqueueUniquePeriodicWork(
+                "daily_summary",
+                ExistingPeriodicWorkPolicy.UPDATE,
+                dailySummary
+            )
+        } else {
+            workManager.cancelUniqueWork("daily_summary")
         }
     }
 }
@@ -85,37 +128,51 @@ private enum class Screen {
     SET_LIMIT,
     WARNING,
     SUMMARY,
+    DETAILS,
     SETTINGS
 }
 
 @Composable
-fun SafeScreenRoot(
+fun ScreenSafeRoot(
     settingsRepository: SettingsRepository,
     usageRepository: UsageRepository,
-    onOpenUsageAccess: () -> Unit
+    onOpenUsageAccess: () -> Unit,
+    onScheduleWorkers: (AppSettings) -> Unit
 ) {
     var settings by remember { mutableStateOf(settingsRepository.loadSettings()) }
     var currentScreen by remember { mutableStateOf(Screen.WELCOME) }
     var todayUsageMinutes by remember { mutableLongStateOf(0L) }
     var hasUsagePermission by remember { mutableStateOf(usageRepository.hasUsagePermission()) }
+    var summaryData by remember { mutableStateOf(SummaryData(0, 0, 0, listOf(0, 0, 0, 0, 0, 0, 0))) }
     var warningDismissedUntil by remember { mutableLongStateOf(0L) }
 
-    SafeScreenTheme(darkTheme = settings.theme == "Dark") {
+    ScreenSafeTheme(darkTheme = settings.theme == "Dark") {
         LaunchedEffect(settings) {
+            onScheduleWorkers(settings)
+        }
+
+        LaunchedEffect(Unit, settings) {
             while (true) {
                 hasUsagePermission = usageRepository.hasUsagePermission()
                 if (hasUsagePermission) {
                     todayUsageMinutes = usageRepository.getTodayScreenTimeMinutes()
-                    settingsRepository.storeTodayUsage(todayUsageMinutes)
+                    usageRepository.saveTodayUsage(todayUsageMinutes)
+                    summaryData = usageRepository.loadSummaryData()
+
+                    if (settings.notificationsEnabled &&
+                        todayUsageMinutes >= settings.dailyLimitMinutes &&
+                        System.currentTimeMillis() > warningDismissedUntil
+                    ) {
+                        NotificationHelper.showLimitReached(androidx.compose.ui.platform.LocalContext.current)
+                    }
                 }
 
-                val shouldShowWarning = hasUsagePermission &&
+                if (hasUsagePermission &&
                     todayUsageMinutes >= settings.dailyLimitMinutes &&
                     System.currentTimeMillis() > warningDismissedUntil &&
                     currentScreen != Screen.WELCOME &&
                     currentScreen != Screen.SETTINGS
-
-                if (shouldShowWarning) {
+                ) {
                     currentScreen = Screen.WARNING
                 }
                 delay(5000)
@@ -124,7 +181,6 @@ fun SafeScreenRoot(
 
         when (currentScreen) {
             Screen.WELCOME -> WelcomeScreen(onGetStarted = { currentScreen = Screen.DASHBOARD })
-
             Screen.DASHBOARD -> DashboardScreen(
                 todayUsageMinutes = todayUsageMinutes,
                 dailyLimitMinutes = settings.dailyLimitMinutes,
@@ -136,17 +192,15 @@ fun SafeScreenRoot(
                 onOpenSettings = { currentScreen = Screen.SETTINGS },
                 onOpenSummary = { currentScreen = Screen.SUMMARY }
             )
-
             Screen.SET_LIMIT -> SetLimitScreen(
                 settings = settings,
                 onBack = { currentScreen = Screen.DASHBOARD },
-                onSave = { updated ->
-                    settings = updated
-                    settingsRepository.saveSettings(updated)
+                onSave = {
+                    settings = it
+                    settingsRepository.saveSettings(it)
                     currentScreen = Screen.DASHBOARD
                 }
             )
-
             Screen.WARNING -> WarningScreen(
                 onDismiss = {
                     warningDismissedUntil = System.currentTimeMillis() + 15 * 60 * 1000
@@ -157,24 +211,23 @@ fun SafeScreenRoot(
                     currentScreen = Screen.DASHBOARD
                 }
             )
-
             Screen.SUMMARY -> SummaryScreen(
-                summaryData = settingsRepository.loadSummaryData(),
+                summaryData = summaryData,
                 onBack = { currentScreen = Screen.DASHBOARD },
+                onViewMore = { currentScreen = Screen.DETAILS },
                 onOpenSettings = { currentScreen = Screen.SETTINGS }
             )
-
+            Screen.DETAILS -> SummaryDetailsScreen(summaryData = summaryData, onBack = { currentScreen = Screen.SUMMARY })
             Screen.SETTINGS -> SettingsScreen(
                 settings = settings,
                 onBack = { currentScreen = Screen.DASHBOARD },
                 onReset = {
-                    settingsRepository.resetAllData()
+                    settingsRepository.reset()
                     settings = settingsRepository.loadSettings()
-                    todayUsageMinutes = 0L
                 },
-                onSave = { updated ->
-                    settings = updated
-                    settingsRepository.saveSettings(updated)
+                onSave = {
+                    settings = it
+                    settingsRepository.saveSettings(it)
                     currentScreen = Screen.DASHBOARD
                 }
             )
@@ -191,24 +244,13 @@ fun WelcomeScreen(onGetStarted: () -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            text = "ScreenSafe",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(32.dp))
-        Text(
-            text = "Manage your screen time and build healthier habits",
-            style = MaterialTheme.typography.bodyLarge
-        )
-        Spacer(modifier = Modifier.height(32.dp))
-        Button(onClick = onGetStarted) {
-            Text("Get Started")
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-        OutlinedButton(onClick = onGetStarted) {
-            Text("Sign In")
-        }
+        Text("ScreenSafe", fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(20.dp))
+        Text("Manage your screen time and build healthier habits")
+        Spacer(modifier = Modifier.height(20.dp))
+        Button(onClick = onGetStarted) { Text("Get Started") }
+        Spacer(modifier = Modifier.height(12.dp))
+        OutlinedButton(onClick = onGetStarted) { Text("Sign In") }
     }
 }
 
@@ -233,11 +275,7 @@ fun DashboardScreen(
         topBar = {
             TopAppBar(
                 title = { Text("ScreenSafe") },
-                actions = {
-                    TextButton(onClick = onOpenSettings) {
-                        Text("Menu")
-                    }
-                }
+                actions = { TextButton(onClick = onOpenSettings) { Text("Menu") } }
             )
         },
         bottomBar = {
@@ -254,25 +292,19 @@ fun DashboardScreen(
                 .padding(innerPadding)
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text("Today's Screen Time", style = MaterialTheme.typography.headlineSmall)
-            Text(formatMinutes(todayUsageMinutes), style = MaterialTheme.typography.displaySmall)
-
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("|######----- $percent% |".replace("######", "#".repeat((percent / 10).coerceIn(0, 10))))
-                Spacer(modifier = Modifier.height(4.dp))
-                Text("Daily Limit: ${formatMinutes(dailyLimitMinutes)}")
-            }
+            Text("Today's Screen Time")
+            Text(formatMinutes(todayUsageMinutes))
+            Text("Progress: $percent%")
+            Text("Daily Limit: ${formatMinutes(dailyLimitMinutes)}")
 
             if (!hasUsagePermission) {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Usage access is required to track screen time accurately.")
+                        Text("Usage access is required to track your device time.")
                         Spacer(modifier = Modifier.height(8.dp))
-                        Button(onClick = onOpenUsageAccess) {
-                            Text("Grant Permission")
-                        }
+                        Button(onClick = onOpenUsageAccess) { Text("Grant Permission") }
                     }
                 }
             }
@@ -281,33 +313,23 @@ fun DashboardScreen(
                 Button(onClick = onSetLimit) { Text("Set Limit") }
                 OutlinedButton(onClick = onViewReport) { Text("View Report") }
             }
-
-            Button(onClick = onTakeBreak) {
-                Text("Take a Break")
-            }
+            Button(onClick = onTakeBreak) { Text("Take a Break") }
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SetLimitScreen(
-    settings: AppSettings,
-    onBack: () -> Unit,
-    onSave: (AppSettings) -> Unit
-) {
+fun SetLimitScreen(settings: AppSettings, onBack: () -> Unit, onSave: (AppSettings) -> Unit) {
     var hoursText by remember { mutableStateOf((settings.dailyLimitMinutes / 60).toString()) }
     var minutesText by remember { mutableStateOf((settings.dailyLimitMinutes % 60).toString().padStart(2, '0')) }
-    var expanded by remember { mutableStateOf(false) }
     var reminderFrequency by remember { mutableStateOf(settings.reminderFrequency) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Set Daily Limit") },
-                navigationIcon = {
-                    TextButton(onClick = onBack) { Text("Back") }
-                }
+                navigationIcon = { TextButton(onClick = onBack) { Text("Back") } }
             )
         }
     ) { innerPadding ->
@@ -316,66 +338,27 @@ fun SetLimitScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text("Choose your daily limit", style = MaterialTheme.typography.titleMedium)
+            Text("Choose your daily limit")
+            OutlinedTextField(value = hoursText, onValueChange = { hoursText = it.filter(Char::isDigit) }, label = { Text("Hours") })
+            OutlinedTextField(value = minutesText, onValueChange = { minutesText = it.filter(Char::isDigit) }, label = { Text("Minutes") })
 
-            OutlinedTextField(
-                value = hoursText,
-                onValueChange = { hoursText = it.filter(Char::isDigit) },
-                label = { Text("Hours") },
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            OutlinedTextField(
-                value = minutesText,
-                onValueChange = { minutesText = it.filter(Char::isDigit) },
-                label = { Text("Minutes") },
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text("Reminder Frequency:")
-                Spacer(modifier = Modifier.height(8.dp))
-
-                ReminderChoice(
-                    label = "Every hour",
-                    selected = reminderFrequency == ReminderFrequency.EVERY_HOUR,
-                    onClick = { reminderFrequency = ReminderFrequency.EVERY_HOUR }
-                )
-                ReminderChoice(
-                    label = "Every 2 hours",
-                    selected = reminderFrequency == ReminderFrequency.EVERY_2_HOURS,
-                    onClick = { reminderFrequency = ReminderFrequency.EVERY_2_HOURS }
-                )
-                ReminderChoice(
-                    label = "Custom",
-                    selected = reminderFrequency == ReminderFrequency.CUSTOM,
-                    onClick = { reminderFrequency = ReminderFrequency.CUSTOM }
-                )
-            }
+            ReminderChoice("Every hour", reminderFrequency == ReminderFrequency.EVERY_HOUR) { reminderFrequency = ReminderFrequency.EVERY_HOUR }
+            ReminderChoice("Every 2 hours", reminderFrequency == ReminderFrequency.EVERY_2_HOURS) { reminderFrequency = ReminderFrequency.EVERY_2_HOURS }
+            ReminderChoice("Custom", reminderFrequency == ReminderFrequency.CUSTOM) { reminderFrequency = ReminderFrequency.CUSTOM }
 
             Button(onClick = {
-                val hours = hoursText.toLongOrNull() ?: 0L
-                val minutes = minutesText.toLongOrNull() ?: 0L
-                val totalMinutes = (hours * 60 + minutes).coerceAtLeast(15)
+                val totalMinutes = ((hoursText.toLongOrNull() ?: 0L) * 60 + (minutesText.toLongOrNull() ?: 0L)).coerceAtLeast(15)
                 onSave(settings.copy(dailyLimitMinutes = totalMinutes, reminderFrequency = reminderFrequency))
-            }) {
-                Text("Save Limit")
-            }
+            }) { Text("Save Limit") }
         }
     }
 }
 
 @Composable
-private fun ReminderChoice(label: String, selected: Boolean, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+fun ReminderChoice(label: String, selected: Boolean, onClick: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
         Text(if (selected) "(•)" else "( )")
         Spacer(modifier = Modifier.width(8.dp))
         TextButton(onClick = onClick) { Text(label) }
@@ -385,42 +368,30 @@ private fun ReminderChoice(label: String, selected: Boolean, onClick: () -> Unit
 @Composable
 fun WarningScreen(onDismiss: () -> Unit, onSnooze: () -> Unit) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
+        modifier = Modifier.fillMaxSize().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text("Warning", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(24.dp))
-        Text("You have reached your daily screen time limit.")
+        Text("Warning", fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(16.dp))
+        Text("You have reached your daily screen time limit.")
+        Spacer(modifier = Modifier.height(8.dp))
         Text("Consider taking a break.")
-        Spacer(modifier = Modifier.height(24.dp))
-        Button(onClick = onDismiss) {
-            Text("Dismiss")
-        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(onClick = onDismiss) { Text("Dismiss") }
         Spacer(modifier = Modifier.height(12.dp))
-        OutlinedButton(onClick = onSnooze) {
-            Text("Snooze Alert")
-        }
+        OutlinedButton(onClick = onSnooze) { Text("Snooze Alert") }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SummaryScreen(
-    summaryData: SummaryData,
-    onBack: () -> Unit,
-    onOpenSettings: () -> Unit
-) {
+fun SummaryScreen(summaryData: SummaryData, onBack: () -> Unit, onViewMore: () -> Unit, onOpenSettings: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Summary") },
-                navigationIcon = {
-                    TextButton(onClick = onBack) { Text("Back") }
-                }
+                navigationIcon = { TextButton(onClick = onBack) { Text("Back") } }
             )
         },
         bottomBar = {
@@ -432,149 +403,87 @@ fun SummaryScreen(
         }
     ) { innerPadding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(innerPadding)
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            modifier = Modifier.fillMaxSize().padding(innerPadding).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Today:      ${formatMinutes(summaryData.todayMinutes)}", style = MaterialTheme.typography.titleMedium)
-            Text("Yesterday:  ${formatMinutes(summaryData.yesterdayMinutes)}", style = MaterialTheme.typography.titleMedium)
-            Text("This Week:  ${formatMinutes(summaryData.thisWeekMinutes)}", style = MaterialTheme.typography.titleMedium)
-
-            Spacer(modifier = Modifier.height(8.dp))
-            Text("Weekly Progress", style = MaterialTheme.typography.headlineSmall)
-
-            WeeklyBarRow("Mon", summaryData.weeklyMinutes[0])
-            WeeklyBarRow("Tue", summaryData.weeklyMinutes[1])
-            WeeklyBarRow("Wed", summaryData.weeklyMinutes[2])
-            WeeklyBarRow("Thu", summaryData.weeklyMinutes[3])
-            WeeklyBarRow("Fri", summaryData.weeklyMinutes[4])
-            WeeklyBarRow("Sat", summaryData.weeklyMinutes[5])
-            WeeklyBarRow("Sun", summaryData.weeklyMinutes[6])
-
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedButton(onClick = {}) {
-                Text("View More")
-            }
+            Text("Today: ${formatMinutes(summaryData.todayMinutes)}")
+            Text("Yesterday: ${formatMinutes(summaryData.yesterdayMinutes)}")
+            Text("This Week: ${formatMinutes(summaryData.thisWeekMinutes)}")
+            Button(onClick = onViewMore) { Text("View More") }
         }
     }
 }
 
 @Composable
-private fun WeeklyBarRow(day: String, minutes: Long) {
-    val barCount = (minutes / 60).coerceIn(0, 8).toInt()
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically
+fun SummaryDetailsScreen(summaryData: SummaryData, onBack: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(day, modifier = Modifier.width(42.dp))
-        Spacer(modifier = Modifier.width(8.dp))
-        Text("|".repeat(barCount).ifBlank { "-" })
+        TextButton(onClick = onBack) { Text("Back") }
+        Text("Detailed Weekly Breakdown", fontWeight = FontWeight.Bold)
+        val labels = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+        labels.zip(summaryData.weeklyMinutes).forEach { (label, value) ->
+            Text("$label: ${formatMinutes(value)}")
+        }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(
-    settings: AppSettings,
-    onBack: () -> Unit,
-    onReset: () -> Unit,
-    onSave: (AppSettings) -> Unit
-) {
+fun SettingsScreen(settings: AppSettings, onBack: () -> Unit, onReset: () -> Unit, onSave: (AppSettings) -> Unit) {
     var notificationsEnabled by remember { mutableStateOf(settings.notificationsEnabled) }
     var breakRemindersEnabled by remember { mutableStateOf(settings.breakRemindersEnabled) }
     var dailySummaryEnabled by remember { mutableStateOf(settings.dailySummaryEnabled) }
-    var themeExpanded by remember { mutableStateOf(false) }
-    var selectedTheme by remember { mutableStateOf(settings.theme) }
+    var theme by remember { mutableStateOf(settings.theme) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Settings") },
-                navigationIcon = {
-                    TextButton(onClick = onBack) { Text("Back") }
-                }
+                navigationIcon = { TextButton(onClick = onBack) { Text("Back") } }
             )
         }
     ) { innerPadding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+            modifier = Modifier.fillMaxSize().padding(innerPadding).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            SettingToggleRow("Notifications", notificationsEnabled) { notificationsEnabled = it }
-            SettingToggleRow("Break Reminders", breakRemindersEnabled) { breakRemindersEnabled = it }
-            SettingToggleRow("Daily Summary", dailySummaryEnabled) { dailySummaryEnabled = it }
+            SettingToggle("Notifications", notificationsEnabled) { notificationsEnabled = it }
+            SettingToggle("Break Reminders", breakRemindersEnabled) { breakRemindersEnabled = it }
+            SettingToggle("Daily Summary", dailySummaryEnabled) { dailySummaryEnabled = it }
 
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Theme:")
-                Spacer(modifier = Modifier.height(8.dp))
-                Button(onClick = { themeExpanded = true }) {
-                    Text(selectedTheme)
-                }
-                DropdownMenu(expanded = themeExpanded, onDismissRequest = { themeExpanded = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Light") },
-                        onClick = {
-                            selectedTheme = "Light"
-                            themeExpanded = false
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Dark") },
-                        onClick = {
-                            selectedTheme = "Dark"
-                            themeExpanded = false
-                        }
-                    )
-                }
+            Text("Theme: $theme")
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(onClick = { theme = "Light" }) { Text("Light") }
+                OutlinedButton(onClick = { theme = "Dark" }) { Text("Dark") }
             }
 
-            OutlinedButton(onClick = onReset) {
-                Text("Reset Data")
-            }
-
+            OutlinedButton(onClick = onReset) { Text("Reset Data") }
             Button(onClick = {
                 onSave(
                     settings.copy(
                         notificationsEnabled = notificationsEnabled,
                         breakRemindersEnabled = breakRemindersEnabled,
                         dailySummaryEnabled = dailySummaryEnabled,
-                        theme = selectedTheme
+                        theme = theme
                     )
                 )
-            }) {
-                Text("Save Settings")
-            }
+            }) { Text("Save Settings") }
         }
     }
 }
 
 @Composable
-private fun SettingToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+fun SettingToggle(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Text(label)
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
-private fun formatMinutes(totalMinutes: Long): String {
+fun formatMinutes(totalMinutes: Long): String {
     val hours = totalMinutes / 60
     val minutes = totalMinutes % 60
-    return if (hours > 0) {
-        String.format(Locale.US, "%dh %02dm", hours, minutes)
-    } else {
-        String.format(Locale.US, "%dm", minutes)
-    }
+    return if (hours > 0) String.format(Locale.US, "%dh %02dm", hours, minutes) else String.format(Locale.US, "%dm", minutes)
 }
