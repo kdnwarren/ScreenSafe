@@ -2,21 +2,28 @@ Changelog
 
 All notable changes to ScreenSafe will be documented in this section.
 
+
+VERSION [0.1.0] 
+
 Added
 
-* Planned support for scheduled break reminders.
-* Planned expansion of usage history beyond the current summary view.
-* Planned enhancement of charting and data visualization for daily and weekly reports.
+* Added the initial concept for ScreenSafe as an Android app focused on monitoring screen time.
+* Added the initial outline describing the business problem of excessive screen time.
+* Added the first plan for core features such as usage limits, warnings, summaries, and settings.
 
 Changed
 
-* Future updates are expected to refine the user interface and improve navigation flow as development continues.
+* Changed the project from a simple app idea into an organized outline with defined goals and functionality.
 
-[1.0.0] - Current Version
+Fixed
+
+* Fixed the project focus so the app remained centered on digital wellness and healthier device habits.
+
+VERSION [1.0.0] 
 
 Added
 
-* Finalized the six main screens shown in the wireframe:
+* Added the six main wireframed screens:
 
   * Welcome Screen
   * Dashboard or Home Screen
@@ -24,8 +31,7 @@ Added
   * Warning or Alert Screen
   * Daily or Weekly Summary Screen
   * Settings Screen
-* Added a clearer user flow from the Welcome Screen to the Dashboard and then to Summary, Settings, Warning, and Set Limit.
-* Added local settings storage for user preferences.
+* Added local settings storage.
 * Added reminder frequency selection.
 * Added weekly summary tracking.
 * Added theme selection in Settings.
@@ -34,26 +40,45 @@ Added
 
 Changed
 
-* Expanded the original project concept into a more complete wireframe-based design.
-* Refined the dashboard to include progress display and quick actions such as Set Limit, View Report, and Take a Break.
-* Refined the settings design to include notification controls, reminder settings, daily summary settings, theme selection, reset options, and save options.
+* Changed the original concept into a more complete wireframe-based design.
+* Changed the dashboard to include progress display and quick actions such as Set Limit, View Report, and Take a Break.
+* Changed the settings design to include notification controls, reminder settings, daily summary settings, theme selection, reset options, and save options.
 
 Fixed
 
-* Improved the connection between the project outline, wireframe, and code plan so that all parts now align more clearly.
+* Fixed the alignment between the original outline, wireframe, and code plan so they matched more clearly.
 
-[0.1.0] - Previous Version
+VERSION [1.1.0]
 
 Added
 
-* Initial app concept for ScreenSafe as an Android app focused on monitoring screen time.
-* Initial outline describing the business problem of excessive screen time.
-* Initial plan for core features such as usage limits, warnings, summaries, and settings.
+* Added Room database support for daily screen-time history.
+* Added WorkManager for scheduled break reminders and daily summary tasks.
+* Added local notifications for screen-time limit warnings and summary alerts.
+* Added a real Summary Details screen to replace the earlier View More placeholder.
+* Added a custom Application class to initialize notification channels.
+* Added notification permission support for newer Android versions.
 
 Changed
 
-* Established the first version of the project structure and general screen ideas before the wireframe and code stages.
+* Changed the project from a starter prototype into a more complete final version.
+* Changed usage-history storage from simple preference-based tracking to a structured Room database.
+* Changed the project architecture to better separate UI, storage, notifications, background work, and settings logic.
+* Changed the app flow so the summary path is fully functional instead of partially planned.
+
+Improved
+
+* Improved persistence by saving daily usage history as structured database records.
+* Improved reminder functionality with scheduled background workers.
+* Improved the summary experience with a dedicated details screen.
+* Improved the overall app quality by replacing placeholder logic with working implementations.
+* Improved the codebase so it better reflects a finished academic project while still matching the original wireframes.
 
 Fixed
 
-* Clarified the project goal so the app remained focused on digital wellness and healthier device habits.
+* Fixed the incomplete View More summary flow.
+* Fixed missing notification behavior by implementing actual notification delivery.
+* Fixed unfinished permission-helper logic by replacing it with usable support code.
+* Fixed weak history storage by moving it to a more reliable database-backed approach.
+
+
