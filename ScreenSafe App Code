@@ -1,0 +1,17 @@
+SafeScreen/
+├── app/
+│   ├── src/main/
+│   │   ├── AndroidManifest.xml
+│   │   ├── java/com/example/safescreen/
+│   │   │   ├── MainActivity.kt
+│   │   │   ├── model/AppSettings.kt
+│   │   │   ├── model/SummaryData.kt
+│   │   │   ├── data/SettingsRepository.kt
+│   │   │   ├── data/UsageRepository.kt
+│   │   │   ├── ui/SafeScreenTheme.kt
+│   │   │   └── util/PermissionUtils.kt
+│   │   └── res/
+│   │       └── values/
+│   │           ├── strings.xml
+│   │           └── themes.xml
+└── build.gradle.kts
