@@ -1,4 +1,4 @@
-package com.example.safescreen.model
+package com.example.screensafe.model
 
 data class SummaryData(
     val todayMinutes: Long,
