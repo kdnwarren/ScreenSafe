@@ -5,11 +5,15 @@
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
 
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
+        android:name=".ScreenSafeApplication"
         android:allowBackup="true"
-        android:label="SafeScreen"
+        android:label="ScreenSafe"
         android:supportsRtl="true"
-        android:theme="@style/Theme.SafeScreen">
+        android:theme="@style/Theme.ScreenSafe">
+
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -19,5 +23,4 @@
             </intent-filter>
         </activity>
     </application>
-
 </manifest>
