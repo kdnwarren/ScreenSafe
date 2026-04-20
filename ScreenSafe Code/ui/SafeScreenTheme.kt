@@ -1,4 +1,4 @@
-package com.example.safescreen.ui
+package com.example.screensafe.ui
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -9,7 +9,7 @@ private val LightColors = lightColorScheme()
 private val DarkColors = darkColorScheme()
 
 @Composable
-fun SafeScreenTheme(
+fun ScreenSafeTheme(
     darkTheme: Boolean,
     content: @Composable () -> Unit
 ) {
