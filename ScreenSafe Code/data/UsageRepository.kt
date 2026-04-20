@@ -1,43 +1,39 @@
-package com.example.safescreen.data
+package com.example.screensafe.data
 
-import android.app.AppOpsManager
-import android.app.usage.UsageStatsManager
 import android.content.Context
-import android.os.Process
-import java.util.Calendar
+import com.example.screensafe.model.AppSettings
+import com.example.screensafe.model.ReminderFrequency
 
-class UsageRepository(private val context: Context) {
+class SettingsRepository(context: Context) {
 
-    fun hasUsagePermission(): Boolean {
-        val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-        val mode = appOps.checkOpNoThrow(
-            "android:get_usage_stats",
-            Process.myUid(),
-            context.packageName
+    private val prefs = context.getSharedPreferences("screensafe_prefs", Context.MODE_PRIVATE)
+
+    fun loadSettings(): AppSettings {
+        return AppSettings(
+            dailyLimitMinutes = prefs.getLong("daily_limit_minutes", 300L),
+            reminderFrequency = ReminderFrequency.valueOf(
+                prefs.getString("reminder_frequency", ReminderFrequency.EVERY_HOUR.name)
+                    ?: ReminderFrequency.EVERY_HOUR.name
+            ),
+            notificationsEnabled = prefs.getBoolean("notifications_enabled", true),
+            breakRemindersEnabled = prefs.getBoolean("break_reminders_enabled", true),
+            dailySummaryEnabled = prefs.getBoolean("daily_summary_enabled", false),
+            theme = prefs.getString("theme", "Light") ?: "Light"
         )
-        return mode == AppOpsManager.MODE_ALLOWED
     }
 
-    fun getTodayScreenTimeMinutes(): Long {
-        val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+    fun saveSettings(settings: AppSettings) {
+        prefs.edit()
+            .putLong("daily_limit_minutes", settings.dailyLimitMinutes)
+            .putString("reminder_frequency", settings.reminderFrequency.name)
+            .putBoolean("notifications_enabled", settings.notificationsEnabled)
+            .putBoolean("break_reminders_enabled", settings.breakRemindersEnabled)
+            .putBoolean("daily_summary_enabled", settings.dailySummaryEnabled)
+            .putString("theme", settings.theme)
+            .apply()
+    }
 
-        val calendar = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-
-        val startTime = calendar.timeInMillis
-        val endTime = System.currentTimeMillis()
-
-        val stats = usageStatsManager.queryUsageStats(
-            UsageStatsManager.INTERVAL_DAILY,
-            startTime,
-            endTime
-        )
-
-        val totalForegroundMillis = stats.sumOf { it.totalTimeInForeground }
-        return totalForegroundMillis / 1000 / 60
+    fun reset() {
+        prefs.edit().clear().apply()
     }
 }
