@@ -1,15 +1,28 @@
-SafeScreen/
+ScreenSafe/
 ├── app/
 │   ├── src/main/
 │   │   ├── AndroidManifest.xml
-│   │   ├── java/com/example/safescreen/
+│   │   ├── java/com/example/screensafe/
 │   │   │   ├── MainActivity.kt
-│   │   │   ├── model/AppSettings.kt
-│   │   │   ├── model/SummaryData.kt
-│   │   │   ├── data/SettingsRepository.kt
-│   │   │   ├── data/UsageRepository.kt
-│   │   │   ├── ui/SafeScreenTheme.kt
-│   │   │   └── util/PermissionUtils.kt
+│   │   │   ├── ScreenSafeApplication.kt
+│   │   │   ├── data/
+│   │   │   │   ├── AppDatabase.kt
+│   │   │   │   ├── DailyUsageDao.kt
+│   │   │   │   ├── DailyUsageEntity.kt
+│   │   │   │   ├── SettingsRepository.kt
+│   │   │   │   └── UsageRepository.kt
+│   │   │   ├── model/
+│   │   │   │   ├── AppSettings.kt
+│   │   │   │   ├── ReminderFrequency.kt
+│   │   │   │   └── SummaryData.kt
+│   │   │   ├── notifications/
+│   │   │   │   ├── NotificationHelper.kt
+│   │   │   │   ├── BreakReminderWorker.kt
+│   │   │   │   └── DailySummaryWorker.kt
+│   │   │   ├── ui/
+│   │   │   │   └── ScreenSafeTheme.kt
+│   │   │   └── util/
+│   │   │       └── PermissionUtils.kt
 │   │   └── res/
 │   │       └── values/
 │   │           ├── strings.xml
