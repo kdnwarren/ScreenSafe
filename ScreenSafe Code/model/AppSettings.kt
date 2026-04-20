@@ -1,4 +1,4 @@
-package com.example.safescreen.model
+package com.example.screensafe.model
 
 enum class ReminderFrequency {
     EVERY_HOUR,
